@@ -1,0 +1,6 @@
+__pycache__/
+.idea/
+dataset/
+models/
+log/
+infer_audio.wav
