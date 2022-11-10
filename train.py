@@ -25,7 +25,7 @@ add_arg('batch_size',       int,    16,                       '训练的批量�
 add_arg('num_workers',      int,    4,                        '读取数据的线程数量')
 add_arg('audio_duration',   float,  3,                        '训练的音频长度，单位秒')
 add_arg('min_duration',     float,  0.5,                      '训练的最短音频长度，单位秒')
-add_arg('num_epoch',        int,    30,                       '训练的轮数')
+add_arg('num_epoch',        int,    10,                       '训练的轮数')
 add_arg('num_classes',      int,    10,                       '分类的类别数量')
 add_arg('learning_rate',    float,  1e-3,                     '初始学习率的大小')
 add_arg('train_list_path',  str,    'dataset/train_list.txt', '训练数据的数据列表路径')
@@ -92,13 +92,23 @@ def train(args):
     else:
         raise Exception(f'{args.use_model} 模型不存在!')
     model.to(device)
+
+    # torchsummary 能够查看模型的输入和输出的形状，可以更加清楚地输出模型的结构
+    # torchsummary.summary(model, input_size, batch_size=-1, device="cuda")
+    """
+        model：pytorch 模型，必须继承自 nn.Module
+        input_size：模型输入 size，形状为 C，H ，W
+        batch_size：batch_size，默认为 -1，在展示模型每层输出的形状时显示的 batch_size
+        device："cuda"或者"cpu"，默认device=‘cuda’
+    """
     summary(model, (train_dataset.input_size, 98))
 
     # 获取优化方法
+    # 优化器的作用：求出让损失函数最小化的参数
     optimizer = torch.optim.Adam(params=model.parameters(),
                                  lr=args.learning_rate,
                                  weight_decay=5e-4)
-    # 获取学习率衰减函数
+    # 获取学习率衰减函数，它的作用是在训练的过程中，对学习率的值进行衰减，训练到达一定程度后，使用小的学习率来提高精度。
     scheduler = CosineAnnealingLR(optimizer, T_max=args.num_epoch)
 
     # 恢复训练
@@ -112,7 +122,7 @@ def train(args):
         print(f'成功加载第 {last_epoch} 轮的模型参数和优化方法参数')
 
     # 获取损失函数
-    loss = torch.nn.CrossEntropyLoss()
+    loss = torch.nn.CrossEntropyLoss()  # 交叉熵损失函数，刻画的是实际输出（概率）与期望输出（概率）的距离。https://zhuanlan.zhihu.com/p/98785902
 
     sum_batch = len(train_loader) * (args.num_epoch - last_epoch)
     # 开始训练
@@ -127,12 +137,13 @@ def train(args):
             output = model(spec_mag)
             # 计算损失值
             los = loss(output, label)
-            optimizer.zero_grad()
-            los.backward()
-            optimizer.step()
+            # 因为grad在反向传播的过程中是累加的，也就是说上一次反向传播的结果会对下一次的反向传播的结果造成影响，则意味着每一次运行反向传播，梯度都会累加之前的梯度，所以一般在反向传播之前需要把梯度清零。
+            optimizer.zero_grad()  # 梯度置零
+            los.backward()  # 计算梯度
+            optimizer.step()  # 更新参数
 
             # 计算准确率
-            output = torch.nn.functional.softmax(output, dim=-1)
+            output = torch.nn.functional.softmax(output, dim=-1)  # softmax() 将各个输出节点的输出值范围映射到[0, 1]，并且约束各个输出节点的输出值的和为1
             output = output.data.cpu().numpy()
             output = np.argmax(output, axis=1)
             label = label.data.cpu().numpy()
